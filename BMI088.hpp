@@ -34,6 +34,8 @@ depends: []
 /* Recommended Website for calculate rotation:
   https://www.andre-gaschler.com/rotationconverter/ */
 
+#include <atomic>
+
 #include "app_framework.hpp"
 #include "gpio.hpp"
 #include "message.hpp"
@@ -231,10 +233,11 @@ class BMI088 : public LibXR::Application {
 
     auto gyro_int_cb = LibXR::GPIO::Callback::Create(
         [](bool in_isr, BMI088* bmi088) {
-          auto timestamp = LibXR::Timebase::GetMicroseconds();
-          bmi088->dt_gyro_ = timestamp - bmi088->last_gyro_int_time_;
-          bmi088->last_gyro_int_time_ = timestamp;
-          bmi088->sample_timestamp_ = timestamp;
+          const auto TIMESTAMP = LibXR::Timebase::GetMicroseconds();
+          while (bmi088->sample_timestamps_.Push(TIMESTAMP) !=
+                 LibXR::ErrorCode::OK) {
+            bmi088->sample_timestamps_.Pop();
+          }
 
           bmi088->new_data_.PostFromCallback(in_isr);
         },
@@ -363,10 +366,14 @@ class BMI088 : public LibXR::Application {
         break;
     }
 
+    const auto GYRO_INTERVAL_US =
+        gyro_interval_us_.load(std::memory_order_relaxed);
+    const float GYRO_DT = static_cast<float>(GYRO_INTERVAL_US) / 1000000.0f;
+
     /* Use other timer as HAL timebase (Because the priority of SysTick is
   lowest) and set the priority to the highest to avoid this issue */
-    if (std::fabs(ideal_gyro_dt - dt_gyro_.ToSecondf()) > 0.0003f) {
-      XR_LOG_WARN("BMI088 Frequency Error: %6f", dt_gyro_.ToSecondf());
+    if (GYRO_INTERVAL_US != 0 && std::fabs(ideal_gyro_dt - GYRO_DT) > 0.0003f) {
+      XR_LOG_WARN("BMI088 Frequency Error: %6f", GYRO_DT);
     }
   }
 
@@ -382,7 +389,28 @@ class BMI088 : public LibXR::Application {
 
     while (true) {
       if (bmi088->new_data_.Wait(50) == LibXR::ErrorCode::OK) {
-        const auto sample_timestamp = bmi088->sample_timestamp_;
+        LibXR::MicrosecondTimestamp sample_timestamp;
+        if (bmi088->sample_timestamps_.Pop(sample_timestamp) !=
+            LibXR::ErrorCode::OK) {
+          continue;
+        }
+
+        LibXR::MicrosecondTimestamp newest_timestamp;
+        while (bmi088->sample_timestamps_.Pop(newest_timestamp) ==
+               LibXR::ErrorCode::OK) {
+          sample_timestamp = newest_timestamp;
+        }
+
+        if (bmi088->has_last_gyro_int_time_) {
+          const auto INTERVAL = sample_timestamp - bmi088->last_gyro_int_time_;
+          bmi088->dt_gyro_ = INTERVAL;
+          bmi088->gyro_interval_us_.store(
+              static_cast<uint32_t>(INTERVAL.ToMicrosecond()),
+              std::memory_order_relaxed);
+        } else {
+          bmi088->has_last_gyro_int_time_ = true;
+        }
+        bmi088->last_gyro_int_time_ = sample_timestamp;
 
         bmi088->RecvGyro();
         bmi088->ParseGyroData();
@@ -635,9 +663,13 @@ class BMI088 : public LibXR::Application {
 
   float temperature_ = 0.0f;
 
-  LibXR::MicrosecondTimestamp sample_timestamp_ = 0;
+  LibXR::MPMCQueue<LibXR::MicrosecondTimestamp> sample_timestamps_{4};
   LibXR::MicrosecondTimestamp last_gyro_int_time_ = 0;
   LibXR::MicrosecondTimestamp::Duration dt_gyro_ = 0;
+  bool has_last_gyro_int_time_ = false;
+  std::atomic<uint32_t> gyro_interval_us_{0};
+  static_assert(std::atomic<uint32_t>::is_always_lock_free,
+                "BMI088 interval snapshot must be lock-free");
 
   float target_temperature_ = 25.0f;
 
