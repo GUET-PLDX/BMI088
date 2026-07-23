@@ -45,22 +45,50 @@ def check(source: str) -> None:
         ),
         "32-bit gyro interval snapshot",
     )
+    require(
+        re.search(
+            r"std::atomic\s*<\s*uint32_t\s*>\s*timestamp_drop_count_\s*\{\s*0\s*\}\s*;",
+            source,
+        ),
+        "lock-free timestamp drop counter",
+    )
     require("sample_timestamp_" not in source, "removal of shared sample timestamp")
 
     require("Timebase::GetMicroseconds()" in callback, "ISR timestamp capture")
     require(
         re.search(
-            r"while\s*\(\s*bmi088->sample_timestamps_\.Push\(TIMESTAMP\)\s*"
-            r"!=\s*LibXR::ErrorCode::OK\s*\)",
+            r"auto\s+push_result\s*=\s*bmi088->sample_timestamps_\.Push\(TIMESTAMP\)\s*;",
             callback,
         ),
-        "checked ISR timestamp retry",
+        "initial ISR timestamp push result",
     )
     require(
-        "bmi088->sample_timestamps_.Pop();" in callback,
-        "oldest timestamp eviction",
+        re.search(
+            r"if\s*\(push_result\s*==\s*LibXR::ErrorCode::FULL\)\s*\{.*?"
+            r"const auto POP_RESULT\s*=\s*bmi088->sample_timestamps_\.Pop\(\)\s*;.*?"
+            r"if\s*\(POP_RESULT\s*==\s*LibXR::ErrorCode::OK\)\s*\{.*?"
+            r"push_result\s*=\s*bmi088->sample_timestamps_\.Push\(TIMESTAMP\)\s*;",
+            callback,
+            re.DOTALL,
+        ),
+        "single drop-oldest and checked retry",
     )
-    require("PostFromCallback(in_isr)" in callback, "ISR semaphore post")
+    require(
+        callback.count("sample_timestamps_.Push(TIMESTAMP)") == 2
+        and callback.count("sample_timestamps_.Pop()") == 1
+        and not re.search(r"\b(?:while|for)\s*\(", callback),
+        "strictly bounded ISR queue operations",
+    )
+    require(
+        re.search(
+            r"if\s*\(push_result\s*==\s*LibXR::ErrorCode::OK\)\s*\{\s*"
+            r"bmi088->new_data_\.PostFromCallback\(in_isr\);\s*\}\s*else\s*\{\s*"
+            r"bmi088->timestamp_drop_count_\.fetch_add\(1,\s*std::memory_order_relaxed\);",
+            callback,
+        ),
+        "post only on enqueue success and count drops",
+    )
+    require(callback.count("PostFromCallback(in_isr)") == 1, "single ISR semaphore post")
     for forbidden in ("dt_gyro_", "last_gyro_int_time_", "gyro_interval_us_"):
         require(forbidden not in callback, f"ISR does not access {forbidden}")
 
@@ -74,6 +102,17 @@ def check(source: str) -> None:
             re.DOTALL,
         ),
         "task pop and newest timestamp drain",
+    )
+    require(
+        re.search(
+            r"while\s*\(\s*bmi088->sample_timestamps_\.Pop\(newest_timestamp\)\s*"
+            r"==\s*LibXR::ErrorCode::OK\s*\)\s*\{.*?"
+            r"const auto TOKEN_RESULT\s*=\s*bmi088->new_data_\.Wait\(0\)\s*;.*?"
+            r"if\s*\(TOKEN_RESULT\s*!=\s*LibXR::ErrorCode::OK\)\s*\{\s*break\s*;",
+            thread,
+            re.DOTALL,
+        ),
+        "non-blocking drain token consumption with race handling",
     )
     require(
         "bool has_last_gyro_int_time_ = false;" in source
@@ -126,11 +165,56 @@ except ContractError as error:
     print(error, file=sys.stderr)
     raise SystemExit(1)
 
+
+def bounded_handoff(first_push: str, pop_result: str = "EMPTY", retry_push: str = "FULL"):
+    pushes = 1
+    pops = 0
+    final_push = first_push
+    if first_push == "FULL":
+        pops = 1
+        if pop_result == "OK":
+            pushes += 1
+            final_push = retry_push
+    posted = int(final_push == "OK")
+    return pushes, pops, posted, 1 - posted
+
+
+state_cases = (
+    (("OK",), (1, 0, 1, 0)),
+    (("FULL", "EMPTY"), (1, 1, 0, 1)),
+    (("FULL", "OK", "FULL"), (2, 1, 0, 1)),
+    (("FULL", "OK", "OK"), (2, 1, 1, 0)),
+)
+for inputs, expected in state_cases:
+    if bounded_handoff(*inputs) != expected:
+        print(f"bounded handoff state failure: {inputs}", file=sys.stderr)
+        raise SystemExit(1)
+
 mutations = (
     (
-        "ISR queue push",
-        "bmi088->sample_timestamps_.Push(TIMESTAMP)",
-        "LibXR::ErrorCode::OK",
+        "bounded ISR handoff",
+        "if (push_result == LibXR::ErrorCode::FULL)",
+        "while (push_result == LibXR::ErrorCode::FULL)",
+    ),
+    (
+        "drop-oldest result gate",
+        "if (POP_RESULT == LibXR::ErrorCode::OK)",
+        "if (POP_RESULT != LibXR::ErrorCode::OK)",
+    ),
+    (
+        "checked retry result",
+        "              push_result = bmi088->sample_timestamps_.Push(TIMESTAMP);",
+        "              bmi088->sample_timestamps_.Push(TIMESTAMP);",
+    ),
+    (
+        "enqueue success post gate",
+        "if (push_result == LibXR::ErrorCode::OK)",
+        "if (push_result != LibXR::ErrorCode::OK)",
+    ),
+    (
+        "timestamp drop accounting",
+        "timestamp_drop_count_.fetch_add(1,",
+        "timestamp_drop_count_.fetch_add(0,",
     ),
     (
         "ISR ownership violation",
@@ -142,6 +226,11 @@ mutations = (
         "newest timestamp drain",
         "bmi088->sample_timestamps_.Pop(newest_timestamp) ==",
         "bmi088->sample_timestamps_.Pop(newest_timestamp) !=",
+    ),
+    (
+        "drained semaphore token",
+        "bmi088->new_data_.Wait(0)",
+        "bmi088->new_data_.Wait(1)",
     ),
     (
         "monitor snapshot ownership",

@@ -234,12 +234,20 @@ class BMI088 : public LibXR::Application {
     auto gyro_int_cb = LibXR::GPIO::Callback::Create(
         [](bool in_isr, BMI088* bmi088) {
           const auto TIMESTAMP = LibXR::Timebase::GetMicroseconds();
-          while (bmi088->sample_timestamps_.Push(TIMESTAMP) !=
-                 LibXR::ErrorCode::OK) {
-            bmi088->sample_timestamps_.Pop();
+          auto push_result = bmi088->sample_timestamps_.Push(TIMESTAMP);
+          if (push_result == LibXR::ErrorCode::FULL) {
+            const auto POP_RESULT = bmi088->sample_timestamps_.Pop();
+            if (POP_RESULT == LibXR::ErrorCode::OK) {
+              push_result = bmi088->sample_timestamps_.Push(TIMESTAMP);
+            }
           }
 
-          bmi088->new_data_.PostFromCallback(in_isr);
+          if (push_result == LibXR::ErrorCode::OK) {
+            bmi088->new_data_.PostFromCallback(in_isr);
+          } else {
+            bmi088->timestamp_drop_count_.fetch_add(1,
+                                                    std::memory_order_relaxed);
+          }
         },
         this);
 
@@ -399,6 +407,10 @@ class BMI088 : public LibXR::Application {
         while (bmi088->sample_timestamps_.Pop(newest_timestamp) ==
                LibXR::ErrorCode::OK) {
           sample_timestamp = newest_timestamp;
+          const auto TOKEN_RESULT = bmi088->new_data_.Wait(0);
+          if (TOKEN_RESULT != LibXR::ErrorCode::OK) {
+            break;
+          }
         }
 
         if (bmi088->has_last_gyro_int_time_) {
@@ -668,6 +680,7 @@ class BMI088 : public LibXR::Application {
   LibXR::MicrosecondTimestamp::Duration dt_gyro_ = 0;
   bool has_last_gyro_int_time_ = false;
   std::atomic<uint32_t> gyro_interval_us_{0};
+  std::atomic<uint32_t> timestamp_drop_count_{0};
   static_assert(std::atomic<uint32_t>::is_always_lock_free,
                 "BMI088 interval snapshot must be lock-free");
 
