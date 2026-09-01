@@ -38,6 +38,7 @@ depends: []
 
 #include "app_framework.hpp"
 #include "gpio.hpp"
+#include "libxr_def.hpp"
 #include "message.hpp"
 #include "pid.hpp"
 #include "pwm.hpp"
@@ -137,7 +138,7 @@ class BMI088 : public LibXR::Application {
     ACCL_12_5HZ = 0x05
   };
 
-  static constexpr float M_DEG2RAD_MULT = 0.01745329251f;
+  static constexpr float M_DEG2RAD_MULT = static_cast<float>(LibXR::PI / 180.0);
 
   void Select(Device device) {
     if (device == Device::ACCELMETER) {
