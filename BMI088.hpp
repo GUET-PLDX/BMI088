@@ -45,53 +45,53 @@ depends: []
 #include "spi.hpp"
 #include "transform.hpp"
 
-#define BMI088_REG_ACCL_CHIP_ID (0x00)
-#define BMI088_REG_ACCL_ERR (0x02)
-#define BMI088_REG_ACCL_STATUS (0x03)
-#define BMI088_REG_ACCL_X_LSB (0x12)
-#define BMI088_REG_ACCL_X_MSB (0x13)
-#define BMI088_REG_ACCL_Y_LSB (0x14)
-#define BMI088_REG_ACCL_Y_MSB (0x15)
-#define BMI088_REG_ACCL_Z_LSB (0x16)
-#define BMI088_REG_ACCL_Z_MSB (0x17)
-#define BMI088_REG_ACCL_SENSORTIME_0 (0x18)
-#define BMI088_REG_ACCL_SENSORTIME_1 (0x19)
-#define BMI088_REG_ACCL_SENSORTIME_2 (0x1A)
-#define BMI088_REG_ACCL_INT_STAT_1 (0x1D)
-#define BMI088_REG_ACCL_TEMP_MSB (0x22)
-#define BMI088_REG_ACCL_TEMP_LSB (0x23)
-#define BMI088_REG_ACCL_CONF (0x40)
-#define BMI088_REG_ACCL_RANGE (0x41)
-#define BMI088_REG_ACCL_INT1_IO_CONF (0x53)
-#define BMI088_REG_ACCL_INT2_IO_CONF (0x54)
-#define BMI088_REG_ACCL_INT1_INT2_MAP_DATA (0x58)
-#define BMI088_REG_ACCL_SELF_TEST (0x6D)
-#define BMI088_REG_ACCL_PWR_CONF (0x7C)
-#define BMI088_REG_ACCL_PWR_CTRL (0x7D)
-#define BMI088_REG_ACCL_SOFTRESET (0x7E)
+inline constexpr uint8_t BMI088_REG_ACCL_CHIP_ID = 0x00;
+inline constexpr uint8_t BMI088_REG_ACCL_ERR = 0x02;
+inline constexpr uint8_t BMI088_REG_ACCL_STATUS = 0x03;
+inline constexpr uint8_t BMI088_REG_ACCL_X_LSB = 0x12;
+inline constexpr uint8_t BMI088_REG_ACCL_X_MSB = 0x13;
+inline constexpr uint8_t BMI088_REG_ACCL_Y_LSB = 0x14;
+inline constexpr uint8_t BMI088_REG_ACCL_Y_MSB = 0x15;
+inline constexpr uint8_t BMI088_REG_ACCL_Z_LSB = 0x16;
+inline constexpr uint8_t BMI088_REG_ACCL_Z_MSB = 0x17;
+inline constexpr uint8_t BMI088_REG_ACCL_SENSORTIME_0 = 0x18;
+inline constexpr uint8_t BMI088_REG_ACCL_SENSORTIME_1 = 0x19;
+inline constexpr uint8_t BMI088_REG_ACCL_SENSORTIME_2 = 0x1A;
+inline constexpr uint8_t BMI088_REG_ACCL_INT_STAT_1 = 0x1D;
+inline constexpr uint8_t BMI088_REG_ACCL_TEMP_MSB = 0x22;
+inline constexpr uint8_t BMI088_REG_ACCL_TEMP_LSB = 0x23;
+inline constexpr uint8_t BMI088_REG_ACCL_CONF = 0x40;
+inline constexpr uint8_t BMI088_REG_ACCL_RANGE = 0x41;
+inline constexpr uint8_t BMI088_REG_ACCL_INT1_IO_CONF = 0x53;
+inline constexpr uint8_t BMI088_REG_ACCL_INT2_IO_CONF = 0x54;
+inline constexpr uint8_t BMI088_REG_ACCL_INT1_INT2_MAP_DATA = 0x58;
+inline constexpr uint8_t BMI088_REG_ACCL_SELF_TEST = 0x6D;
+inline constexpr uint8_t BMI088_REG_ACCL_PWR_CONF = 0x7C;
+inline constexpr uint8_t BMI088_REG_ACCL_PWR_CTRL = 0x7D;
+inline constexpr uint8_t BMI088_REG_ACCL_SOFTRESET = 0x7E;
 
-#define BMI088_REG_GYRO_CHIP_ID (0x00)
-#define BMI088_REG_GYRO_X_LSB (0x02)
-#define BMI088_REG_GYRO_X_MSB (0x03)
-#define BMI088_REG_GYRO_Y_LSB (0x04)
-#define BMI088_REG_GYRO_Y_MSB (0x05)
-#define BMI088_REG_GYRO_Z_LSB (0x06)
-#define BMI088_REG_GYRO_Z_MSB (0x07)
-#define BMI088_REG_GYRO_INT_STAT_1 (0x0A)
-#define BMI088_REG_GYRO_RANGE (0x0F)
-#define BMI088_REG_GYRO_BANDWIDTH (0x10)
-#define BMI088_REG_GYRO_LPM1 (0x11)
-#define BMI088_REG_GYRO_SOFTRESET (0x14)
-#define BMI088_REG_GYRO_INT_CTRL (0x15)
-#define BMI088_REG_GYRO_INT3_INT4_IO_CONF (0x16)
-#define BMI088_REG_GYRO_INT3_INT4_IO_MAP (0x18)
-#define BMI088_REG_GYRO_SELF_TEST (0x3C)
+inline constexpr uint8_t BMI088_REG_GYRO_CHIP_ID = 0x00;
+inline constexpr uint8_t BMI088_REG_GYRO_X_LSB = 0x02;
+inline constexpr uint8_t BMI088_REG_GYRO_X_MSB = 0x03;
+inline constexpr uint8_t BMI088_REG_GYRO_Y_LSB = 0x04;
+inline constexpr uint8_t BMI088_REG_GYRO_Y_MSB = 0x05;
+inline constexpr uint8_t BMI088_REG_GYRO_Z_LSB = 0x06;
+inline constexpr uint8_t BMI088_REG_GYRO_Z_MSB = 0x07;
+inline constexpr uint8_t BMI088_REG_GYRO_INT_STAT_1 = 0x0A;
+inline constexpr uint8_t BMI088_REG_GYRO_RANGE = 0x0F;
+inline constexpr uint8_t BMI088_REG_GYRO_BANDWIDTH = 0x10;
+inline constexpr uint8_t BMI088_REG_GYRO_LPM1 = 0x11;
+inline constexpr uint8_t BMI088_REG_GYRO_SOFTRESET = 0x14;
+inline constexpr uint8_t BMI088_REG_GYRO_INT_CTRL = 0x15;
+inline constexpr uint8_t BMI088_REG_GYRO_INT3_INT4_IO_CONF = 0x16;
+inline constexpr uint8_t BMI088_REG_GYRO_INT3_INT4_IO_MAP = 0x18;
+inline constexpr uint8_t BMI088_REG_GYRO_SELF_TEST = 0x3C;
 
-#define BMI088_CHIP_ID_ACCL (0x1E)
-#define BMI088_CHIP_ID_GYRO (0x0F)
+inline constexpr uint8_t BMI088_CHIP_ID_ACCL = 0x1E;
+inline constexpr uint8_t BMI088_CHIP_ID_GYRO = 0x0F;
 
-#define BMI088_ACCL_RX_BUFF_LEN (19)
-#define BMI088_GYRO_RX_BUFF_LEN (6)
+inline constexpr uint8_t BMI088_ACCL_RX_BUFF_LEN = 19;
+inline constexpr uint8_t BMI088_GYRO_RX_BUFF_LEN = 6;
 
 /**
  * @brief BMI088 6 轴 IMU 驱动模块
@@ -162,7 +162,7 @@ class BMI088 : public LibXR::Application {
     Deselect(device);
 
     /* For accelmeter, two write operations need at least 2us */
-    LibXR::Thread::Sleep(1);
+    LibXR::Timebase::DelayMicroseconds(2);
   }
 
   uint8_t ReadSingle(Device device, uint8_t reg) {
@@ -573,6 +573,8 @@ class BMI088 : public LibXR::Application {
             bmi088->gyro_data_key_.data_.x(), bmi088->gyro_data_key_.data_.y(),
             bmi088->gyro_data_key_.data_.z());
       } else if (strcmp(argv[1], "cali") == 0) {
+        const Eigen::Matrix<float, 3, 1> PREV_OFFSET =
+            bmi088->gyro_data_key_.data_;
         bmi088->gyro_data_key_.data_.x() = 0.0,
         bmi088->gyro_data_key_.data_.y() = 0.0,
         bmi088->gyro_data_key_.data_.z() = 0.0;
@@ -590,6 +592,13 @@ class BMI088 : public LibXR::Application {
         LibXR::STDIO::Printf<"\r\nProgress: Done\r\n">();
         bmi088->in_cali_ = false;
         LibXR::Thread::Sleep(1000);
+
+        if (bmi088->cali_counter_ == 0) {
+          bmi088->gyro_data_key_.data_ = PREV_OFFSET;
+          LibXR::STDIO::Printf<
+              "Error: No gyro samples collected, calibration aborted.\r\n">();
+          return -1;
+        }
 
         bmi088->gyro_data_key_.data_.x() = static_cast<float>(
             static_cast<double>(bmi088->gyro_cali_.data()[0]) /
@@ -620,6 +629,13 @@ class BMI088 : public LibXR::Application {
         LibXR::STDIO::Printf<"\r\nProgress: Done\r\n">();
         bmi088->in_cali_ = false;
         LibXR::Thread::Sleep(1000);
+
+        if (bmi088->cali_counter_ == 0) {
+          bmi088->gyro_data_key_.data_ = PREV_OFFSET;
+          LibXR::STDIO::Printf<
+              "Error: No gyro samples collected, calibration aborted.\r\n">();
+          return -1;
+        }
 
         LibXR::STDIO::Printf<"\r\nCalibration error - x: %f, y: %f, z: %f\r\n">(
             static_cast<double>(bmi088->gyro_cali_.data()[0]) /
