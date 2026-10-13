@@ -2,31 +2,8 @@
 
 // clang-format off
 /* === MODULE MANIFEST V2 ===
-module_description: 博世 BMI088 6 轴惯性测量单元（IMU）的驱动模块 / Driver module for Bosch BMI088 6-axis Inertial Measurement Unit (IMU)
-constructor_args:
-  - gyro_freq: BMI088::GyroFreq::GYRO_2000HZ_BW532HZ
-  - accl_freq: BMI088::AcclFreq::ACCL_1600HZ
-  - gyro_range: BMI088::GyroRange::DEG_2000DPS
-  - accl_range: BMI088::AcclRange::ACCL_24G
-  - rotation:
-      w: 1.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
-  - pid_param:
-      k: 1.0
-      p: 0.0
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 0.0
-      cycle: false
-  - gyro_topic_name: "bmi088_gyro"
-  - accl_topic_name: "bmi088_accl"
-  - target_temperature: 45
-  - task_stack_depth: 2048
-template_args: []
-required_hardware: spi_bmi088/spi1/SPI1 bmi088_accl_cs bmi088_gyro_cs bmi088_gyro_int pwm_bmi088_heat ramfs database
+module_description: 博世 BMI088 6 轴惯性测量单元（IMU）的驱动模块 / Driver module for Bosch BMI088
+  6-axis Inertial Measurement Unit (IMU)
 depends: []
 === END MANIFEST === */
 // clang-format on
@@ -36,8 +13,8 @@ depends: []
 
 #include <atomic>
 
-#include "app_framework.hpp"
 #include "gpio.hpp"
+#include "libxr.hpp"
 #include "libxr_def.hpp"
 #include "message.hpp"
 #include "pid.hpp"
@@ -97,7 +74,7 @@ inline constexpr uint8_t BMI088_GYRO_RX_BUFF_LEN = 6;
  * @brief BMI088 6 轴 IMU 驱动模块
  * @details 提供 BMI088 初始化、数据采集、温控与 Topic 发布能力。
  */
-class BMI088 : public LibXR::Application {
+class BMI088 {
  public:
   enum class Device : uint8_t { ACCELMETER, GYROSCOPE };
 
@@ -185,8 +162,6 @@ class BMI088 : public LibXR::Application {
 
   /**
    * @brief 构造 BMI088 模块
-   * @param hw 硬件容器
-   * @param app 应用管理器
    * @param freq 陀螺仪频率配置
    * @param accl_freq 加速度计频率配置
    * @param gyro_range 陀螺仪量程配置
@@ -198,9 +173,11 @@ class BMI088 : public LibXR::Application {
    * @param target_temperature 目标温度
    * @param task_stack_depth 线程栈深
    */
-  BMI088(LibXR::HardwareContainer& hw, LibXR::ApplicationManager& app,
-         GyroFreq freq, AcclFreq accl_freq, GyroRange gyro_range,
-         AcclRange accl_range, LibXR::Quaternion<float>&& rotation,
+  BMI088(LibXR::SPI& spi, LibXR::GPIO& cs_accl, LibXR::GPIO& cs_gyro,
+         LibXR::GPIO& int_gyro, LibXR::PWM& pwm, LibXR::RamFS& ramfs,
+         LibXR::Database& database, GyroFreq freq, AcclFreq accl_freq,
+         GyroRange gyro_range, AcclRange accl_range,
+         LibXR::Quaternion<float>&& rotation,
          LibXR::PID<float>::Param pid_param, const char* gyro_topic_name,
          const char* accl_topic_name, float target_temperature,
          size_t task_stack_depth)
@@ -213,22 +190,18 @@ class BMI088 : public LibXR::Application {
             LibXR::Topic::CreateTopic<decltype(gyro_data_)>(gyro_topic_name)),
         topic_accl_(
             LibXR::Topic::CreateTopic<decltype(accl_data_)>(accl_topic_name)),
-        cs_accl_(hw.template FindOrExit<LibXR::GPIO>({"bmi088_accl_cs"})),
-        cs_gyro_(hw.template FindOrExit<LibXR::GPIO>({"bmi088_gyro_cs"})),
-        int_gyro_(hw.template FindOrExit<LibXR::GPIO>({"bmi088_gyro_int"})),
-        spi_(
-            hw.template FindOrExit<LibXR::SPI>({"spi_bmi088", "spi1", "SPI1"})),
-        pwm_(hw.template FindOrExit<LibXR::PWM>({"pwm_bmi088_heat"})),
+        cs_accl_((&cs_accl)),
+        cs_gyro_((&cs_gyro)),
+        int_gyro_((&int_gyro)),
+        spi_((&spi)),
+        pwm_((&pwm)),
         rotation_(std::move(rotation)),
         pid_heat_(pid_param),
         op_spi_(sem_spi_),
         cmd_file_(LibXR::RamFS::CreateFile("bmi088", CommandFunc, this)),
-        gyro_data_key_(*hw.template FindOrExit<LibXR::Database>({"database"}),
-                       "bmi088_gyro_data",
+        gyro_data_key_(*(&database), "bmi088_gyro_data",
                        Eigen::Matrix<float, 3, 1>(0.0, 0.0, 0.0)) {
-    app.Register(*this);
-
-    hw.template FindOrExit<LibXR::RamFS>({"ramfs"})->Add(cmd_file_);
+    (&ramfs)->Add(cmd_file_);
 
     int_gyro_->DisableInterrupt();
 
@@ -341,7 +314,7 @@ class BMI088 : public LibXR::Application {
   /**
    * @brief 监控回调
    */
-  void OnMonitor(void) override {
+  void OnMonitor(void) {
     if (std::isinf(gyro_data_.x()) || std::isinf(gyro_data_.y()) ||
         std::isinf(gyro_data_.z()) || std::isinf(accl_data_.x()) ||
         std::isinf(accl_data_.y()) || std::isinf(accl_data_.z()) ||
