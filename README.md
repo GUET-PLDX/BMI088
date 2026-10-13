@@ -1,5 +1,9 @@
 > MC02 integration: based on xrobot-org/BMI088 master e4e64d705f5b61685e629a91e123ad2febe75fc7 (2026-10-04).
-> The upstream hardware-reference / Param constructor is available alongside the PLDX HardwareContainer / ApplicationManager compatibility constructor used by the existing YAML generator.
+> The upstream hardware-reference / `Param` constructor is available alongside a
+> PLDX compatibility constructor that takes hardware references and settings as
+> flat positional arguments, which is the form emitted by the static XRobot 1.x
+> generator from `args`. The former `HardwareContainer` / `ApplicationManager`
+> entry point is gone with LibXR v2.
 > Local timestamp queue, atomic monitoring snapshot and zero-sample calibration guards are retained. Register writes use the upstream 1 ms wait. Existing YAML parameters and units remain unchanged.
 
 # BMI088
@@ -50,6 +54,8 @@ The Topics `gyro_topic_name` and `accl_topic_name` are published with the timest
 
 ## 3. 构造接口 / Constructor
 
+主接口（硬件引用 + `Param` 聚合）：
+
 ```cpp
 BMI088(LibXR::GPIO& accl_cs,
        LibXR::GPIO& gyro_cs,
@@ -58,8 +64,49 @@ BMI088(LibXR::GPIO& accl_cs,
        LibXR::PWM& heater_pwm,
        LibXR::Database& database,
        LibXR::RamFS& ramfs,
-       const Param& param = {...});  // 节选 / excerpt
+       const Param& param);  // 无默认值，避免与兼容构造产生重载歧义
+                            // no default, so it cannot clash with the compatibility overload
 ```
+
+BSP 兼容接口（本工程静态 XRobot 1.x 生成器实际使用的形式：硬件引用 + 扁平设置参数，
+参数名与 `args` 的键一一对应）：
+
+```cpp
+BMI088(LibXR::GPIO& accl_cs, LibXR::GPIO& gyro_cs, LibXR::GPIO& gyro_int,
+       LibXR::SPI& spi, LibXR::PWM& heater_pwm, LibXR::Database& database,
+       LibXR::RamFS& ramfs,
+       GyroFreq freq, AcclFreq accl_freq, GyroRange gyro_range,
+       AcclRange accl_range, LibXR::Quaternion<float>&& rotation,
+       LibXR::PID<float>::Param pid_param,
+       const char* gyro_topic_name, const char* accl_topic_name,
+       float target_temperature, size_t task_stack_depth);
+```
+
+该兼容构造仅仅把扁平参数打包成 `Param` 后委托给主构造，因此两条路径行为完全一致。
+
+Main interface (hardware references plus the `Param` aggregate):
+
+```cpp
+BMI088(LibXR::GPIO& accl_cs, LibXR::GPIO& gyro_cs, LibXR::GPIO& gyro_int,
+       LibXR::SPI& spi, LibXR::PWM& heater_pwm, LibXR::Database& database,
+       LibXR::RamFS& ramfs, const Param& param);
+```
+
+PLDX compatibility interface (the form the static XRobot 1.x generator emits from
+`args`; every parameter name matches an `args` key):
+
+```cpp
+BMI088(LibXR::GPIO& accl_cs, LibXR::GPIO& gyro_cs, LibXR::GPIO& gyro_int,
+       LibXR::SPI& spi, LibXR::PWM& heater_pwm, LibXR::Database& database,
+       LibXR::RamFS& ramfs, GyroFreq freq, AcclFreq accl_freq,
+       GyroRange gyro_range, AcclRange accl_range,
+       LibXR::Quaternion<float>&& rotation, LibXR::PID<float>::Param pid_param,
+       const char* gyro_topic_name, const char* accl_topic_name,
+       float target_temperature, size_t task_stack_depth);
+```
+
+The compatibility constructor only packs the flat arguments into a `Param` and
+delegates to the main constructor, so both paths behave identically.
 
 依赖：
 
@@ -119,14 +166,17 @@ Configuration parameters (`Param`):
 
 ## 5. 配置示例 / Configuration Example
 
-`xrobot instance add xrobot-org/BMI088` 写入的实例，依赖填写为 BSP 通过 `XR_REGISTER`（硬件注册）注册的名称，输出频率与 `pid_param` 取使用该模块的 BSP 配置中的值：
+`xrobot setup --frozen` 还原本模块后，BSP 在 `User/RobotConfig/*.yaml` 中按扁平 `args` 列出硬件引用与设置（与兼容构造的参数名一一对应），硬件名由 BSP 通过 `XR_REGISTER` 注册：
 
-An instance written by `xrobot instance add xrobot-org/BMI088`, with the dependencies set to names registered by the BSP with `XR_REGISTER` (Registration) and the output frequencies and `pid_param` taken from a BSP configuration that uses the Module:
+After `xrobot setup --frozen` restores this Module, the BSP lists hardware
+references and settings as flat `args` in `User/RobotConfig/*.yaml` (one key per
+compatibility-constructor parameter); the hardware names are registered by the
+BSP with `XR_REGISTER`:
 
 ```yaml
 modules:
-  - module: xrobot-org/BMI088
-    id: bmi088
+  - module: pldx/BMI088
+    id: BMI088_0
     args:
       - accl_cs: ACCL_CS
       - gyro_cs: GYRO_CS
@@ -135,24 +185,23 @@ modules:
       - heater_pwm: pwm_tim10_ch1
       - database: database
       - ramfs: ramfs
-      - param:
-          gyro_freq: BMI088::GyroFreq::GYRO_1000HZ_BW116HZ
-          accl_freq: BMI088::AcclFreq::ACCL_800HZ
-          gyro_range: BMI088::GyroRange::DEG_2000DPS
-          accl_range: BMI088::AcclRange::ACCL_24G
-          rotation: '{1.0f, 0.0f, 0.0f, 0.0f}'
-          pid_param:
-            k: 0.15f
-            p: 1.0f
-            i: 0.1f
-            d: 0.0f
-            i_limit: 0.3f
-            out_limit: 1.0f
-            cycle: false
-          gyro_topic_name: "bmi088_gyro"
-          accl_topic_name: "bmi088_accl"
-          target_temperature: 45
-          task_stack_depth: 2048
+      - freq: BMI088::GyroFreq::GYRO_1000HZ_BW116HZ
+      - accl_freq: BMI088::AcclFreq::ACCL_800HZ
+      - gyro_range: BMI088::GyroRange::DEG_2000DPS
+      - accl_range: BMI088::AcclRange::ACCL_24G
+      - rotation: LibXR::Quaternion<float>{0.70710678, 0.0, 0.0, -0.70710678}
+      - pid_param:
+          k: 1.0
+          p: 0.35
+          i: 0.0
+          d: 0.0
+          i_limit: 0.0
+          out_limit: 0.0
+          cycle: false
+      - gyro_topic_name: '"gimbal_gyro"'
+      - accl_topic_name: '"gimbal_accl"'
+      - target_temperature: 45
+      - task_stack_depth: 3072
 ```
 
 ## 6. 依赖与硬件 / Dependencies and Hardware

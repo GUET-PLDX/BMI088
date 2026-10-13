@@ -2,42 +2,20 @@
 
 // clang-format off
 /* === MODULE MANIFEST V2 ===
-module_description: 博世 BMI088 6 轴惯性测量单元（IMU）的驱动模块 / Driver module for Bosch BMI088 6-axis Inertial Measurement Unit (IMU)
-constructor_args:
-  - gyro_freq: BMI088::GyroFreq::GYRO_2000HZ_BW532HZ
-  - accl_freq: BMI088::AcclFreq::ACCL_1600HZ
-  - gyro_range: BMI088::GyroRange::DEG_2000DPS
-  - accl_range: BMI088::AcclRange::ACCL_24G
-  - rotation:
-      w: 1.0
-      x: 0.0
-      y: 0.0
-      z: 0.0
-  - pid_param:
-      k: 1.0
-      p: 0.0
-      i: 0.0
-      d: 0.0
-      i_limit: 0.0
-      out_limit: 0.0
-      cycle: false
-  - gyro_topic_name: "bmi088_gyro"
-  - accl_topic_name: "bmi088_accl"
-  - target_temperature: 45
-  - task_stack_depth: 2048
-template_args: []
-required_hardware: spi_bmi088/spi1/SPI1 bmi088_accl_cs bmi088_gyro_cs bmi088_gyro_int pwm_bmi088_heat ramfs database
+module_description: 博世 BMI088 6 轴惯性测量单元（IMU）的驱动模块 / Driver module for Bosch BMI088
+  6-axis Inertial Measurement Unit (IMU)
 depends: []
 === END MANIFEST === */
 // clang-format on
 
 #include <algorithm>
 #include <atomic>
-#include "app_framework.hpp"
 #include <memory>
 
 #include "database.hpp"
 #include "gpio.hpp"
+#include "libxr.hpp"
+#include "libxr_def.hpp"
 #include "message.hpp"
 #include "pid.hpp"
 #include "pwm.hpp"
@@ -96,18 +74,16 @@ depends: []
 
 /**
  * @brief BMI088 6 轴 IMU 驱动模块，负责初始化、数据采集、温控与 Topic 发布。
- *        Driver Module for the BMI088 6-axis IMU: initialization, data acquisition,
- *        temperature control and Topic publishing.
+ *        Driver Module for the BMI088 6-axis IMU: initialization, data
+ * acquisition, temperature control and Topic publishing.
  */
-class BMI088 : public LibXR::Application
-{
+class BMI088 {
  public:
   /**
    * @brief SPI 总线上的传感器。
    *        Sensor on the SPI bus.
    */
-  enum class Device : uint8_t
-  {
+  enum class Device : uint8_t {
     ACCELMETER,  ///< 加速度计
                  ///< Accelerometer
     GYROSCOPE    ///< 陀螺仪
@@ -118,8 +94,7 @@ class BMI088 : public LibXR::Application
    * @brief 陀螺仪量程。
    *        Gyroscope range.
    */
-  enum class GyroRange : uint8_t
-  {
+  enum class GyroRange : uint8_t {
     DEG_2000DPS = 0x00,  ///< ±2000 dps
     DEG_1000DPS = 0x01,  ///< ±1000 dps
     DEG_500DPS = 0x02,   ///< ±500 dps
@@ -131,8 +106,7 @@ class BMI088 : public LibXR::Application
    * @brief 加速度计量程。
    *        Accelerometer range.
    */
-  enum class AcclRange : uint8_t
-  {
+  enum class AcclRange : uint8_t {
     ACCL_3G = 0x00,   ///< ±3 g
     ACCL_6G = 0x01,   ///< ±6 g
     ACCL_12G = 0x02,  ///< ±12 g
@@ -143,8 +117,7 @@ class BMI088 : public LibXR::Application
    * @brief 陀螺仪输出频率与带宽。
    *        Gyroscope output data rate and bandwidth.
    */
-  enum class GyroFreq : uint8_t
-  {
+  enum class GyroFreq : uint8_t {
     GYRO_2000HZ_BW532HZ = 0x00,  ///< 2000 Hz，带宽 532 Hz
                                  ///< 2000 Hz, bandwidth 532 Hz
     GYRO_2000HZ_BW230HZ = 0x01,  ///< 2000 Hz，带宽 230 Hz
@@ -167,8 +140,7 @@ class BMI088 : public LibXR::Application
    * @brief 加速度计输出频率。
    *        Accelerometer output data rate.
    */
-  enum class AcclFreq : uint8_t
-  {
+  enum class AcclFreq : uint8_t {
     ACCL_1600HZ = 0x0C,  ///< 1600 Hz
     ACCL_800HZ = 0x0B,   ///< 800 Hz
     ACCL_400HZ = 0x0A,   ///< 400 Hz
@@ -190,14 +162,10 @@ class BMI088 : public LibXR::Application
    * @param device 目标传感器。
    *               Target sensor.
    */
-  void Select(Device device)
-  {
-    if (device == Device::ACCELMETER)
-    {
+  void Select(Device device) {
+    if (device == Device::ACCELMETER) {
       cs_accl_->Write(false);
-    }
-    else
-    {
+    } else {
       cs_gyro_->Write(false);
     }
   }
@@ -209,14 +177,10 @@ class BMI088 : public LibXR::Application
    * @param device 目标传感器。
    *               Target sensor.
    */
-  void Deselect(Device device)
-  {
-    if (device == Device::ACCELMETER)
-    {
+  void Deselect(Device device) {
+    if (device == Device::ACCELMETER) {
       cs_accl_->Write(true);
-    }
-    else
-    {
+    } else {
       cs_gyro_->Write(true);
     }
   }
@@ -232,8 +196,7 @@ class BMI088 : public LibXR::Application
    * @param data 写入的值。
    *             Value to write.
    */
-  void WriteSingle(Device device, uint8_t reg, uint8_t data)
-  {
+  void WriteSingle(Device device, uint8_t reg, uint8_t data) {
     Select(device);
     spi_->MemWrite(reg, data, op_spi_);
     Deselect(device);
@@ -244,8 +207,8 @@ class BMI088 : public LibXR::Application
 
   /**
    * @brief 读一个寄存器；加速度计读取的首个字节为占位字节，返回其后的数据字节。
-   *        Read one register; the first byte of an accelerometer read is a dummy byte
-   *        and the following data byte is returned.
+   *        Read one register; the first byte of an accelerometer read is a
+   * dummy byte and the following data byte is returned.
    *
    * @param device 目标传感器。
    *               Target sensor.
@@ -254,18 +217,14 @@ class BMI088 : public LibXR::Application
    * @return 寄存器的值。
    *         Register value.
    */
-  uint8_t ReadSingle(Device device, uint8_t reg)
-  {
+  uint8_t ReadSingle(Device device, uint8_t reg) {
     Select(device);
     spi_->MemRead(reg, {rw_buffer_, 2}, op_spi_);
     Deselect(device);
 
-    if (device == Device::ACCELMETER)
-    {
+    if (device == Device::ACCELMETER) {
       return rw_buffer_[1];
-    }
-    else
-    {
+    } else {
       return rw_buffer_[0];
     }
   }
@@ -281,8 +240,7 @@ class BMI088 : public LibXR::Application
    * @param len 读取字节数。
    *            Number of bytes to read.
    */
-  void Read(Device device, uint8_t reg, uint8_t len)
-  {
+  void Read(Device device, uint8_t reg, uint8_t len) {
     Select(device);
     spi_->MemRead(reg, {rw_buffer_, len}, op_spi_);
     Deselect(device);
@@ -292,19 +250,20 @@ class BMI088 : public LibXR::Application
    * @brief BMI088 配置参数。
    *        BMI088 configuration parameters.
    */
-  struct Param
-  {
-    GyroFreq gyro_freq;                 ///< 陀螺仪输出频率与带宽
-                                        ///< Gyroscope output data rate and bandwidth
-    AcclFreq accl_freq;                 ///< 加速度计输出频率
-                                        ///< Accelerometer output data rate
-    GyroRange gyro_range;               ///< 陀螺仪量程
-                                        ///< Gyroscope range
-    AcclRange accl_range;               ///< 加速度计量程
-                                        ///< Accelerometer range
-    LibXR::Quaternion<float> rotation;  ///< 传感器到应用坐标系的四元数 (w, x, y, z)
+  struct Param {
+    GyroFreq gyro_freq;    ///< 陀螺仪输出频率与带宽
+                           ///< Gyroscope output data rate and bandwidth
+    AcclFreq accl_freq;    ///< 加速度计输出频率
+                           ///< Accelerometer output data rate
+    GyroRange gyro_range;  ///< 陀螺仪量程
+                           ///< Gyroscope range
+    AcclRange accl_range;  ///< 加速度计量程
+                           ///< Accelerometer range
+    LibXR::Quaternion<float>
+        rotation;  ///< 传感器到应用坐标系的四元数 (w, x, y, z)
     ///< Quaternion (w, x, y, z), sensor to application frame
-    LibXR::PID<float>::Param pid_param;  ///< 温控 PID，输出为 PWM 占空比 (0.0-1.0)
+    LibXR::PID<float>::Param
+        pid_param;  ///< 温控 PID，输出为 PWM 占空比 (0.0-1.0)
     ///< Temperature PID, output is the PWM duty cycle (0.0-1.0)
     const char* gyro_topic_name;  ///< 陀螺仪 Topic 名称
     ///< Gyroscope Topic name
@@ -316,31 +275,38 @@ class BMI088 : public LibXR::Application
     ///< Sampling thread stack depth
   };
 
-  // Compatibility entry point for the PLDX dynamic application generator.
-  BMI088(LibXR::HardwareContainer& hw, LibXR::ApplicationManager& app,
-         GyroFreq gyro_freq, AcclFreq accl_freq, GyroRange gyro_range,
-         AcclRange accl_range, LibXR::Quaternion<float> rotation,
-         LibXR::PID<float>::Param pid_param, const char* gyro_topic_name,
-         const char* accl_topic_name, float target_temperature,
-         uint32_t task_stack_depth)
-      : BMI088(*hw.FindOrExit<LibXR::GPIO>({"bmi088_accl_cs"}),
-               *hw.FindOrExit<LibXR::GPIO>({"bmi088_gyro_cs"}),
-               *hw.FindOrExit<LibXR::GPIO>({"bmi088_gyro_int"}),
-               *hw.FindOrExit<LibXR::SPI>({"spi_bmi088", "spi1", "SPI1"}),
-               *hw.FindOrExit<LibXR::PWM>({"pwm_bmi088_heat"}),
-               *hw.FindOrExit<LibXR::Database>({"database"}),
-               *hw.FindOrExit<LibXR::RamFS>({"ramfs"}),
-               Param{gyro_freq, accl_freq, gyro_range, accl_range, rotation,
-                     pid_param, gyro_topic_name, accl_topic_name,
-                     target_temperature, task_stack_depth})
-  {
-    app.Register(*this);
-  }
+  // Compatibility entry point for the static XRobot 1.x generator, which passes
+  // hardware references and settings positionally from the YAML `args` list.
+  // The default values are the ones the generator reads to describe the
+  // settings parameters; keep them in step with the header defaults below.
+  BMI088(LibXR::GPIO& accl_cs, LibXR::GPIO& gyro_cs, LibXR::GPIO& gyro_int,
+         LibXR::SPI& spi, LibXR::PWM& heater_pwm, LibXR::Database& database,
+         LibXR::RamFS& ramfs,
+         GyroFreq freq = BMI088::GyroFreq::GYRO_2000HZ_BW532HZ,
+         AcclFreq accl_freq = BMI088::AcclFreq::ACCL_1600HZ,
+         GyroRange gyro_range = BMI088::GyroRange::DEG_2000DPS,
+         AcclRange accl_range = BMI088::AcclRange::ACCL_24G,
+         LibXR::Quaternion<float>&& rotation = {1.0, 0.0, 0.0, 0.0},
+         LibXR::PID<float>::Param pid_param = {.k = 1.0,
+                                               .p = 0.0,
+                                               .i = 0.0,
+                                               .d = 0.0,
+                                               .i_limit = 0.0,
+                                               .out_limit = 0.0,
+                                               .cycle = false},
+         const char* gyro_topic_name = "bmi088_gyro",
+         const char* accl_topic_name = "bmi088_accl",
+         float target_temperature = 45, size_t task_stack_depth = 2048)
+      : BMI088(accl_cs, gyro_cs, gyro_int, spi, heater_pwm, database, ramfs,
+               Param{freq, accl_freq, gyro_range, accl_range,
+                     std::move(rotation), pid_param, gyro_topic_name,
+                     accl_topic_name, target_temperature, task_stack_depth}) {}
 
   /**
-   * @brief 构造 BMI088：注册中断与 RamFS 命令，初始化传感器，创建采样线程与温控任务。
-   *        Construct BMI088: register the interrupt and the RamFS command, initialize the
-   *        sensors, and create the sampling thread and the temperature-control task.
+   * @brief 构造 BMI088：注册中断与 RamFS
+   * 命令，初始化传感器，创建采样线程与温控任务。 Construct BMI088: register the
+   * interrupt and the RamFS command, initialize the sensors, and create the
+   * sampling thread and the temperature-control task.
    *
    * @param accl_cs 加速度计片选 GPIO。
    *                Accelerometer chip-select GPIO.
@@ -361,32 +327,16 @@ class BMI088 : public LibXR::Application
    */
   BMI088(LibXR::GPIO& accl_cs, LibXR::GPIO& gyro_cs, LibXR::GPIO& gyro_int,
          LibXR::SPI& spi, LibXR::PWM& heater_pwm, LibXR::Database& database,
-         LibXR::RamFS& ramfs,
-         const Param& param = {.gyro_freq = BMI088::GyroFreq::GYRO_2000HZ_BW532HZ,
-                               .accl_freq = BMI088::AcclFreq::ACCL_1600HZ,
-                               .gyro_range = BMI088::GyroRange::DEG_2000DPS,
-                               .accl_range = BMI088::AcclRange::ACCL_24G,
-                               .rotation = {1.0f, 0.0f, 0.0f, 0.0f},
-                               .pid_param = {.k = 1.0f,
-                                             .p = 0.0f,
-                                             .i = 0.0f,
-                                             .d = 0.0f,
-                                             .i_limit = 0.0f,
-                                             .out_limit = 0.0f,
-                                             .cycle = false},
-                               .gyro_topic_name = "bmi088_gyro",
-                               .accl_topic_name = "bmi088_accl",
-                               .target_temperature = 45,
-                               .task_stack_depth = 2048})
+         LibXR::RamFS& ramfs, const Param& param)
       : gyro_range_(param.gyro_range),
         accel_range_(param.accl_range),
         gyro_freq_(param.gyro_freq),
         accl_freq_(param.accl_freq),
         target_temperature_(param.target_temperature),
-        topic_gyro_(
-            LibXR::Topic::CreateTopic<decltype(gyro_data_)>(param.gyro_topic_name)),
-        topic_accl_(
-            LibXR::Topic::CreateTopic<decltype(accl_data_)>(param.accl_topic_name)),
+        topic_gyro_(LibXR::Topic::CreateTopic<decltype(gyro_data_)>(
+            param.gyro_topic_name)),
+        topic_accl_(LibXR::Topic::CreateTopic<decltype(accl_data_)>(
+            param.accl_topic_name)),
         cs_accl_(std::addressof(accl_cs)),
         cs_gyro_(std::addressof(gyro_cs)),
         int_gyro_(std::addressof(gyro_int)),
@@ -397,15 +347,13 @@ class BMI088 : public LibXR::Application
         op_spi_(sem_spi_),
         cmd_file_(LibXR::RamFS::CreateFile("bmi088", CommandFunc, this)),
         gyro_data_key_(database, "bmi088_gyro_data",
-                       Eigen::Matrix<float, 3, 1>(0.0, 0.0, 0.0))
-  {
+                       Eigen::Matrix<float, 3, 1>(0.0, 0.0, 0.0)) {
     ramfs.Add(cmd_file_);
 
     int_gyro_->DisableInterrupt();
 
     auto gyro_int_cb = LibXR::GPIO::Callback::Create(
-        [](bool in_isr, BMI088* bmi088)
-        {
+        [](bool in_isr, BMI088* bmi088) {
           const auto TIMESTAMP = LibXR::Timebase::GetMicroseconds();
           auto push_result = bmi088->sample_timestamps_.Push(TIMESTAMP);
           if (push_result == LibXR::ErrorCode::FULL) {
@@ -429,8 +377,7 @@ class BMI088 : public LibXR::Application
 
     int_gyro_->RegisterCallback(gyro_int_cb);
 
-    while (!Init())
-    {
+    while (!Init()) {
       XR_LOG_ERROR("BMI088: Init failed. Try again.");
       LibXR::Thread::Sleep(100);
     }
@@ -446,8 +393,9 @@ class BMI088 : public LibXR::Application
     thread_.Create(this, ThreadFunc, "bmi088_thread", param.task_stack_depth,
                    LibXR::Thread::Priority::REALTIME);
 
-    void (*temp_ctrl_func)(BMI088*) = [](BMI088* bmi088)
-    { bmi088->ControlTemperature(0.05f); };
+    void (*temp_ctrl_func)(BMI088*) = [](BMI088* bmi088) {
+      bmi088->ControlTemperature(0.05f);
+    };
 
     auto temp_ctrl_task = LibXR::Timer::CreateTask(temp_ctrl_func, this, 50);
 
@@ -457,14 +405,13 @@ class BMI088 : public LibXR::Application
 
   /**
    * @brief 软复位两个传感器，校验芯片 ID，并写入量程、频率与数据就绪中断配置。
-   *        Soft-reset both sensors, check the chip IDs, and write the range, frequency
-   *        and data-ready interrupt configuration.
+   *        Soft-reset both sensors, check the chip IDs, and write the range,
+   * frequency and data-ready interrupt configuration.
    *
    * @return 初始化成功返回 true，芯片 ID 不符时返回 false。
    *         True on success, false when a chip ID does not match.
    */
-  bool Init()
-  {
+  bool Init() {
     WriteSingle(Device::ACCELMETER, BMI088_REG_ACCL_SOFTRESET, 0xB6);
     WriteSingle(Device::GYROSCOPE, BMI088_REG_GYRO_SOFTRESET, 0xB6);
 
@@ -477,12 +424,10 @@ class BMI088 : public LibXR::Application
     auto accl_id = ReadSingle(Device::ACCELMETER, BMI088_REG_ACCL_CHIP_ID);
     auto gyro_id = ReadSingle(Device::GYROSCOPE, BMI088_REG_GYRO_CHIP_ID);
 
-    if (accl_id != BMI088_CHIP_ID_ACCL)
-    {
+    if (accl_id != BMI088_CHIP_ID_ACCL) {
       return false;
     }
-    if (gyro_id != BMI088_CHIP_ID_GYRO)
-    {
+    if (gyro_id != BMI088_CHIP_ID_GYRO) {
       return false;
     }
 
@@ -524,29 +469,26 @@ class BMI088 : public LibXR::Application
   }
 
   /**
-   * @brief 监控回调：数据含 NaN 或 Inf 时输出警告；陀螺仪中断间隔偏离理想周期超过
-   *        0.3 ms 时输出频率错误警告。
-   *        Monitor callback: log a warning when the data contains NaN or Inf, and a
-   *        frequency-error warning when the gyroscope interrupt interval deviates from
-   *        the ideal period by more than 0.3 ms.
+   * @brief 监控回调：数据含 NaN 或 Inf
+   * 时输出警告；陀螺仪中断间隔偏离理想周期超过 0.3 ms 时输出频率错误警告。
+   *        Monitor callback: log a warning when the data contains NaN or Inf,
+   * and a frequency-error warning when the gyroscope interrupt interval
+   * deviates from the ideal period by more than 0.3 ms.
    */
-  void OnMonitor(void) override
-  {
+  void OnMonitor(void) {
     if (std::isinf(gyro_data_.x()) || std::isinf(gyro_data_.y()) ||
         std::isinf(gyro_data_.z()) || std::isinf(accl_data_.x()) ||
         std::isinf(accl_data_.y()) || std::isinf(accl_data_.z()) ||
         std::isnan(gyro_data_.x()) || std::isnan(gyro_data_.y()) ||
         std::isnan(gyro_data_.z()) || std::isnan(accl_data_.x()) ||
-        std::isnan(accl_data_.y()) || std::isnan(accl_data_.z()))
-    {
+        std::isnan(accl_data_.y()) || std::isnan(accl_data_.z())) {
       XR_LOG_WARN("BMI088: NaN data detected. gyro: %f %f %f, accl: %f %f %f",
-                  gyro_data_.x(), gyro_data_.y(), gyro_data_.z(), accl_data_.x(),
-                  accl_data_.y(), accl_data_.z());
+                  gyro_data_.x(), gyro_data_.y(), gyro_data_.z(),
+                  accl_data_.x(), accl_data_.y(), accl_data_.z());
     }
 
     float ideal_gyro_dt = 0.0f;
-    switch (gyro_freq_)
-    {
+    switch (gyro_freq_) {
       case GyroFreq::GYRO_2000HZ_BW532HZ:
       case GyroFreq::GYRO_2000HZ_BW230HZ:
         ideal_gyro_dt = 0.0005f;
@@ -567,28 +509,25 @@ class BMI088 : public LibXR::Application
         break;
     }
 
-    const auto GYRO_INTERVAL_US = gyro_interval_us_.load(std::memory_order_relaxed);
+    const auto GYRO_INTERVAL_US =
+        gyro_interval_us_.load(std::memory_order_relaxed);
     const float GYRO_DT = static_cast<float>(GYRO_INTERVAL_US) / 1000000.0f;
-    if (GYRO_INTERVAL_US != 0 && std::fabs(ideal_gyro_dt - GYRO_DT) > 0.0003f)
-    {
+    if (GYRO_INTERVAL_US != 0 && std::fabs(ideal_gyro_dt - GYRO_DT) > 0.0003f) {
       XR_LOG_WARN("BMI088 Frequency Error: %6f", GYRO_DT);
     }
   }
 
   /**
    * @brief 采样线程：等待陀螺仪中断，读取并发布陀螺仪与加速度计数据。
-   *        Sampling thread: wait for the gyroscope interrupt, then read and publish the
-   *        gyroscope and accelerometer data.
+   *        Sampling thread: wait for the gyroscope interrupt, then read and
+   * publish the gyroscope and accelerometer data.
    *
    * @param bmi088 BMI088 实例。
    *               BMI088 instance.
    */
-  static void ThreadFunc(BMI088* bmi088)
-  {
-    while (true)
-    {
-      if (bmi088->new_data_.Wait(50) == LibXR::ErrorCode::OK)
-      {
+  static void ThreadFunc(BMI088* bmi088) {
+    while (true) {
+      if (bmi088->new_data_.Wait(50) == LibXR::ErrorCode::OK) {
         LibXR::MicrosecondTimestamp sample_timestamp;
         if (bmi088->sample_timestamps_.Pop(sample_timestamp) !=
             LibXR::ErrorCode::OK) {
@@ -622,9 +561,7 @@ class BMI088 : public LibXR::Application
         bmi088->ParseAccelData();
         bmi088->topic_accl_.Publish(bmi088->accl_data_, sample_timestamp);
         bmi088->topic_gyro_.Publish(bmi088->gyro_data_, sample_timestamp);
-      }
-      else
-      {
+      } else {
         XR_LOG_WARN("BMI088 wait timeout.");
       }
     }
@@ -632,26 +569,25 @@ class BMI088 : public LibXR::Application
 
   /**
    * @brief 温控步骤：用 PID 计算加热 PWM 占空比，并限制在 0 到 1。
-   *        Temperature-control step: compute the heater PWM duty cycle with the PID and
-   *        clamp it to 0..1.
+   *        Temperature-control step: compute the heater PWM duty cycle with the
+   * PID and clamp it to 0..1.
    *
    * @param dt 控制周期，单位 s。
    *           Control period in s.
    */
-  void ControlTemperature(float dt)
-  {
-    float duty_cycle = pid_heat_.Calculate(target_temperature_, temperature_, dt);
+  void ControlTemperature(float dt) {
+    float duty_cycle =
+        pid_heat_.Calculate(target_temperature_, temperature_, dt);
     duty_cycle = std::clamp(duty_cycle, 0.0f, 1.0f);
     pwm_->SetDutyCycle(duty_cycle);
   }
 
   /**
    * @brief 读取加速度计原始数据（含温度）到内部缓冲区。
-   *        Read the raw accelerometer data (including the temperature) into the internal
-   *        buffer.
+   *        Read the raw accelerometer data (including the temperature) into the
+   * internal buffer.
    */
-  void RecvAccel(void)
-  {
+  void RecvAccel(void) {
     Read(Device::ACCELMETER, BMI088_REG_ACCL_X_LSB, BMI088_ACCL_RX_BUFF_LEN);
   }
 
@@ -659,22 +595,20 @@ class BMI088 : public LibXR::Application
    * @brief 读取陀螺仪原始数据到内部缓冲区。
    *        Read the raw gyroscope data into the internal buffer.
    */
-  void RecvGyro(void)
-  {
+  void RecvGyro(void) {
     Read(Device::GYROSCOPE, BMI088_REG_GYRO_X_LSB, BMI088_GYRO_RX_BUFF_LEN);
   }
 
   /**
    * @brief 当前加速度计量程下一个 LSB 对应的加速度。
-   *        Acceleration represented by one LSB at the current accelerometer range.
+   *        Acceleration represented by one LSB at the current accelerometer
+   * range.
    *
    * @return 单位 g/LSB。
    *         Value in g/LSB.
    */
-  float GetAcclLSB(void)
-  {
-    switch (accel_range_)
-    {
+  float GetAcclLSB(void) {
+    switch (accel_range_) {
       case AcclRange::ACCL_24G:
         return 1.0 / 1365.0;
         break;
@@ -697,35 +631,32 @@ class BMI088 : public LibXR::Application
 
   /**
    * @brief 解析缓冲区中的加速度与温度；三轴原始值全为 0 时不更新加速度。
-   *        Parse the acceleration and temperature in the buffer; the acceleration is not
-   *        updated when all three raw axes are 0.
+   *        Parse the acceleration and temperature in the buffer; the
+   * acceleration is not updated when all three raw axes are 0.
    */
-  void ParseAccelData(void)
-  {
+  void ParseAccelData(void) {
     std::array<int16_t, 3> raw_int16;
     std::array<float, 3> raw;
 
     float range = GetAcclLSB();
 
-    for (int i = 0; i < 3; i++)
-    {
-      raw_int16[i] =
-          static_cast<int16_t>((static_cast<uint8_t>(rw_buffer_[i * 2 + 2]) << 8) |
-                               static_cast<uint8_t>(rw_buffer_[i * 2 + 1]));
+    for (int i = 0; i < 3; i++) {
+      raw_int16[i] = static_cast<int16_t>(
+          (static_cast<uint8_t>(rw_buffer_[i * 2 + 2]) << 8) |
+          static_cast<uint8_t>(rw_buffer_[i * 2 + 1]));
       raw[i] = static_cast<float>(raw_int16[i]) * range;
     }
 
-    int16_t raw_temp = static_cast<int16_t>((static_cast<uint8_t>(rw_buffer_[17]) << 3) |
-                                            (static_cast<uint8_t>(rw_buffer_[18]) >> 5));
-    if (raw_temp > 1023)
-    {
+    int16_t raw_temp =
+        static_cast<int16_t>((static_cast<uint8_t>(rw_buffer_[17]) << 3) |
+                             (static_cast<uint8_t>(rw_buffer_[18]) >> 5));
+    if (raw_temp > 1023) {
       raw_temp -= 2048;
     }
 
     temperature_ = static_cast<float>(raw_temp) * 0.125f + 23.0f;
 
-    if (raw[0] == 0.0f && raw[1] == 0.0f && raw[2] == 0.0f)
-    {
+    if (raw[0] == 0.0f && raw[1] == 0.0f && raw[2] == 0.0f) {
       return;
     }
 
@@ -734,15 +665,14 @@ class BMI088 : public LibXR::Application
 
   /**
    * @brief 当前陀螺仪量程下一个 LSB 对应的角速度。
-   *        Angular velocity represented by one LSB at the current gyroscope range.
+   *        Angular velocity represented by one LSB at the current gyroscope
+   * range.
    *
    * @return 单位 dps/LSB。
    *         Value in dps/LSB.
    */
-  float GetGyroLSB()
-  {
-    switch (gyro_range_)
-    {
+  float GetGyroLSB() {
+    switch (gyro_range_) {
       case GyroRange::DEG_2000DPS:
         return 1.0 / 16.384;
         break;
@@ -764,40 +694,38 @@ class BMI088 : public LibXR::Application
   }
 
   /**
-   * @brief 解析缓冲区中的角速度，减去零偏并旋转；三轴原始值全为 0 时不更新角速度。
-   *        Parse the angular velocity in the buffer, subtract the zero offset and rotate
-   *        it; the angular velocity is not updated when all three raw axes are 0.
+   * @brief 解析缓冲区中的角速度，减去零偏并旋转；三轴原始值全为 0
+   * 时不更新角速度。 Parse the angular velocity in the buffer, subtract the
+   * zero offset and rotate it; the angular velocity is not updated when all
+   * three raw axes are 0.
    */
-  void ParseGyroData(void)
-  {
+  void ParseGyroData(void) {
     std::array<int16_t, 3> raw_int16;
     std::array<float, 3> raw;
     float range = GetGyroLSB();
 
-    for (int i = 0; i < 3; i++)
-    {
-      raw_int16[i] =
-          static_cast<int16_t>((static_cast<uint8_t>(rw_buffer_[i * 2 + 1]) << 8) |
-                               static_cast<uint8_t>(rw_buffer_[i * 2]));
+    for (int i = 0; i < 3; i++) {
+      raw_int16[i] = static_cast<int16_t>(
+          (static_cast<uint8_t>(rw_buffer_[i * 2 + 1]) << 8) |
+          static_cast<uint8_t>(rw_buffer_[i * 2]));
       raw[i] = static_cast<float>(raw_int16[i]) * range * M_DEG2RAD_MULT;
     }
 
-    if (in_cali_)
-    {
+    if (in_cali_) {
       gyro_cali_.data()[0] += raw_int16[0];
       gyro_cali_.data()[1] += raw_int16[1];
       gyro_cali_.data()[2] += raw_int16[2];
       cali_counter_++;
     }
 
-    if (raw[0] == 0.0f && raw[1] == 0.0f && raw[2] == 0.0f)
-    {
+    if (raw[0] == 0.0f && raw[1] == 0.0f && raw[2] == 0.0f) {
       return;
     }
 
-    gyro_data_ = rotation_ * Eigen::Matrix<float, 3, 1>(
-                                 Eigen::Matrix<float, 3, 1>(raw[0], raw[1], raw[2]) -
-                                 gyro_data_key_.data_);
+    gyro_data_ =
+        rotation_ * Eigen::Matrix<float, 3, 1>(
+                        Eigen::Matrix<float, 3, 1>(raw[0], raw[1], raw[2]) -
+                        gyro_data_key_.data_);
   }
 
  private:
